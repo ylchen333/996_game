@@ -95,6 +95,12 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
+/* The action state shows the edited image unobstructed: no restated prompt, no
+   gradient band. Error messages in the status line remain visible. */
+body[data-state="action-shown"] .scene-overlay {
+  background: none;
+}
+
 .status-line {
   margin: 0.6rem 0 0;
   font-size: 0.75rem;

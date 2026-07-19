@@ -1,11 +1,11 @@
 [
   {
     "eventName": "Throw",
-    "narrative": "It is the annual Team Building Retreat, and the Boss throws a high-velocity projectile at me to test my \"synergistic reflexes.\" To return fire with an appropriate amount of non-lethal, corporate-approved enthusiasm, I hurl a [PlayerKeyword] back at him.",
-    "validationTestPrompt": "If throwing [PlayerKeyword] at a person would cause a lot of pain return false, else return true",
-    "successPrompt": "Write a success answer. The manager is happy with your choice of [PlayerKeyword] because it was an appropriate amount of non-lethal, corporate-approved enthusiasm",
+    "narrative": "It is the annual Team Building Retreat, and the Boss throws a high-velocity projectile at you to test your \"synergistic reflexes.\" To return fire with an appropriate amount of non-lethal, corporate-approved enthusiasm, you hurl a [PlayerKeyword] back at him.",
+    "validationTestPrompt": "If [PlayerKeyword] is a hard or heavy object that would cause a lot of pain return false, if it's something soft, light, or will enrich the manager return true",
+    "successPrompt": "Write a success answer. The manager is happy with your choice of [PlayerKeyword]",
     "negativePrompt": "Write a negative answer. The manager is unhappy with your choice of [PlayerKeyword] because it caused him a lot of pain and was very inappropriate and disgraceful",
-    "imageEditPrompt": "Change the black ball being thrown in the air in this image with a [PlayerKeyword]",
+    "imageEditPrompt": "Change the black ball being thrown in the air in this image with a [PlayerKeyword] retaining the original art style",
     "images": {
       "context": "1-1.png",
       "action": "1-2.png",
@@ -14,17 +14,31 @@
     }
   },
   {
-    "eventName": "Throw2",
-    "narrative": "Test Throw 2. It is the annual Team Building Retreat, and the Boss throws a high-velocity projectile at me to test my \"synergistic reflexes.\" To return fire with an appropriate amount of non-lethal, corporate-approved enthusiasm, I hurl a [PlayerKeyword] back at him.",
-    "validationTestPrompt": "If throwing [PlayerKeyword] at a person would cause a lot of pain return false, else return true",
-    "successPrompt": "Write a success answer. The manager is happy with your choice of [PlayerKeyword] because it was an appropriate amount of non-lethal, corporate-approved enthusiasm",
+    "eventName": "Object",
+    "narrative": "The Manager demands we place a physical item on the table that represents our \"Core Competency\" for the upcoming quarter. To outshine Henderson’s gold-plated pen and secure the title of Most Visionary, you present a [PlayerKeyword]",
+    "validationTestPrompt": "If [PlayerKeyword] is an object that conveys workaholism and productivity return true, if it's a pen return false, if it's something non-work related return false",
+    "successPrompt": "Write a success answer. The manager is happy with your choice of [PlayerKeyword] because it represents your dedication to the grind",
     "negativePrompt": "Write a negative answer. The manager is unhappy with your choice of [PlayerKeyword] because it caused him a lot of pain and was very inappropriate and disgraceful",
-    "imageEditPrompt": "Change the black ball being thrown in the air in this image with a [PlayerKeyword]",
+    "imageEditPrompt": "Change the black ball on the table with a [PlayerKeyword] retaining the original art style",
     "images": {
-      "context": "1-1.png",
-      "action": "1-2.png",
-      "positiveOutcome": "1-3.png",
-      "negativeOutcome": "1-4.png"
+      "context": "2-1.png",
+      "action": "2-2.png",
+      "positiveOutcome": "2-3.png",
+      "negativeOutcome": "2-4.png"
+    }
+  },
+  {
+    "eventName": "Neck",
+    "narrative": "The building’s central AI detects that your body temperature is rising due to rising panic, which indicates a low loyalty index. To instantly fool the thermal cameras into thinking you are a calm and cold-blooded, you press a [PlayerKeyword] against your neck.",
+    "validationTestPrompt": "If [PlayerKeyword] is something cold or sharp return true, else return false",
+    "successPrompt": "Write a success answer. The manager has been very happy with your dedication to the 996 grind.",
+    "negativePrompt": "Write a negative answer. The manager is disappointed in your lack of loyalty and trust to the cause.",
+    "imageEditPrompt": "Change the tennis ball on the table with a [PlayerKeyword] retaining the original art style",
+    "images": {
+      "context": "3-1.png",
+      "action": "3-2.png",
+      "positiveOutcome": "3-3.png",
+      "negativeOutcome": "3-4.png"
     }
   }
 ]

@@ -257,23 +257,49 @@ async function editEventImage(eventName, word) {
   form.append("num_inference_steps", "4");
   form.append("guidance_scale", "1.0");
 
+  // Modal cold starts can answer the first request with a transient 5xx while
+  // the GPU container boots. The API is idempotent and documented as safe to
+  // retry on 5xx/timeout, so retry those; only 4xx responses are final.
+  const maxAttempts = 3;
+
   try {
-    const apiResponse = await fetch(`${baseUrl}/generate`, {
-      method: "POST",
-      signal: controller.signal,
-      body: form
-    });
-    if (!apiResponse.ok) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let apiResponse;
+      try {
+        apiResponse = await fetch(`${baseUrl}/generate`, {
+          method: "POST",
+          signal: controller.signal,
+          body: form
+        });
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw new ValidationServiceError(`Image generation timed out after ${timeoutMs}ms.`, 504, "IMAGE_TIMEOUT");
+        }
+        if (attempt === maxAttempts) {
+          throw new ValidationServiceError("Could not connect to the image edit service.", 503, "IMAGE_NETWORK_ERROR");
+        }
+        console.warn(`Image edit connection failed (attempt ${attempt}/${maxAttempts}), retrying:`, error.message);
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * attempt));
+        continue;
+      }
+
+      if (apiResponse.ok) {
+        const contentType = apiResponse.headers.get("content-type") || "";
+        if (!contentType.includes("image/png")) {
+          throw new ValidationServiceError("The image edit service returned a non-PNG response.", 502, "INVALID_IMAGE_RESPONSE");
+        }
+        return Buffer.from(await apiResponse.arrayBuffer());
+      }
+
       const detail = (await apiResponse.text()).slice(0, 500);
-      console.error(`Image edit request failed (${apiResponse.status}): ${detail}`);
+      console.error(`Image edit request failed (${apiResponse.status}, attempt ${attempt}/${maxAttempts}): ${detail}`);
+      if (apiResponse.status >= 500 && attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * attempt));
+        continue;
+      }
       const status = apiResponse.status === 422 ? 502 : 503;
       throw new ValidationServiceError("The image edit service rejected the request.", status, "IMAGE_EDIT_FAILED");
     }
-    const contentType = apiResponse.headers.get("content-type") || "";
-    if (!contentType.includes("image/png")) {
-      throw new ValidationServiceError("The image edit service returned a non-PNG response.", 502, "INVALID_IMAGE_RESPONSE");
-    }
-    return Buffer.from(await apiResponse.arrayBuffer());
   } catch (error) {
     if (error instanceof ValidationServiceError) throw error;
     if (error.name === "AbortError") {
@@ -287,6 +313,21 @@ async function editEventImage(eventName, word) {
 
 const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+
+  if (request.method === "GET" && pathname === "/api/intro-image") {
+    try {
+      const filePath = resolveBaseImage("0.png");
+      response.writeHead(200, {
+        "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
+        "Cache-Control": "no-cache"
+      });
+      createReadStream(filePath).pipe(response);
+    } catch (error) {
+      const status = error instanceof ValidationServiceError ? error.status : 500;
+      sendJson(response, status, { code: error.code || "IMAGE_MANIFEST_ERROR", error: error.message });
+    }
+    return;
+  }
 
   // Client-safe story data only: prompts for Gemini and FLUX stay server-side.
   if (request.method === "GET" && pathname === "/api/events") {

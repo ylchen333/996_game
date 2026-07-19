@@ -2,6 +2,8 @@ import { GAME_STATES, GameEngine } from "./game-engine.js";
 
 const KEYWORD_TOKEN = "[PlayerKeyword]";
 
+const INTRO_TEXT = "Welcome to your internship at Synergy Corp! We are so excited to have you with us. Here at Synergy, we're not just a company \u2014 we're a family. We are thrilled to have you spend your best years with us!";
+
 const sceneImage = document.querySelector("#scene-image");
 const sceneText = document.querySelector("#scene-text");
 const statusLine = document.querySelector("#status-line");
@@ -46,7 +48,15 @@ function render() {
 
   const event = game.currentEvent;
 
-  if (game.state === GAME_STATES.UNANSWERED) {
+  if (game.state === GAME_STATES.INTRO) {
+    revokeGeneratedImage();
+    showImage("/api/intro-image", "Synergy Corp orientation");
+    sceneText.textContent = INTRO_TEXT;
+    form.hidden = true;
+    actionButton.textContent = "START GAME";
+    actionButton.hidden = false;
+    actionButton.focus();
+  } else if (game.state === GAME_STATES.UNANSWERED) {
     showEventImage(event, "context", event.eventName);
     sceneText.textContent = event.narrative.replaceAll(KEYWORD_TOKEN, "___");
     actionButton.hidden = true;
@@ -56,7 +66,7 @@ function render() {
     input.focus();
   } else if (game.state === GAME_STATES.ACTION) {
     // The submit handler already placed the edited (or fallback) action image.
-    sceneText.textContent = event.narrative.replaceAll(KEYWORD_TOKEN, game.lastResult.answer);
+    sceneText.textContent = "";
     form.hidden = true;
     actionButton.textContent = "CONTINUE";
     actionButton.hidden = false;
@@ -72,7 +82,7 @@ function render() {
   } else if (game.state === GAME_STATES.WON) {
     revokeGeneratedImage();
     sceneImage.hidden = true;
-    sceneText.textContent = "RESOLUTION ACHIEVED. THE LOOP IS BROKEN.";
+    sceneText.textContent = "CONGRATULATIONS, YOU'VE PASSED YOUR INTERNSHIP AND HAVE RECEIVED A FULL TIME OFFER!";
     form.hidden = true;
     actionButton.textContent = "PLAY AGAIN";
     actionButton.hidden = false;
@@ -175,7 +185,9 @@ form.addEventListener("submit", async (event) => {
 });
 
 actionButton.addEventListener("click", () => {
-  if (game.state === GAME_STATES.ACTION) {
+  if (game.state === GAME_STATES.INTRO) {
+    game.start();
+  } else if (game.state === GAME_STATES.ACTION) {
     game.showOutcome();
   } else if (game.state === GAME_STATES.POSITIVE || game.state === GAME_STATES.NEGATIVE) {
     game.advance();

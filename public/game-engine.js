@@ -2,6 +2,7 @@
  * The finite states are deliberately explicit so the UI can pick an image and a
  * button label without inferring what just happened.
  *
+ * intro           -> opening screen + Start Game button
  * unanswered      -> context image + narrative, input enabled
  * action-shown    -> FLUX-edited action image + Continue button
  * outcome-positive-> positiveOutcome image + generated text + Next button
@@ -9,6 +10,7 @@
  * final-win       -> after the last beat's positive outcome
  */
 export const GAME_STATES = Object.freeze({
+  INTRO: "intro",
   UNANSWERED: "unanswered",
   ACTION: "action-shown",
   POSITIVE: "outcome-positive",
@@ -29,12 +31,19 @@ export class GameEngine {
     this.events = events;
     this.attempt = 1;
     this.eventIndex = 0;
-    this.state = GAME_STATES.UNANSWERED;
+    this.state = GAME_STATES.INTRO;
     this.lastResult = null;
   }
 
   get currentEvent() {
     return this.events[this.eventIndex];
+  }
+
+  /** Leave the opening screen and begin the first story beat. */
+  start() {
+    if (this.state === GAME_STATES.INTRO) {
+      this.state = GAME_STATES.UNANSWERED;
+    }
   }
 
   /**
@@ -71,10 +80,11 @@ export class GameEngine {
     }
   }
 
+  /** Return to the opening screen with all progress cleared. */
   restart() {
     this.attempt = 1;
     this.eventIndex = 0;
-    this.state = GAME_STATES.UNANSWERED;
+    this.state = GAME_STATES.INTRO;
     this.lastResult = null;
   }
 }
