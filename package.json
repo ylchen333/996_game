@@ -1,0 +1,15 @@
+{
+  "name": "the-quiet-room",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A terminal-style sentence completion narrative game.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

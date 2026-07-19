@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A terminal-style narrative sentence completion game." />
+    <title>The Quiet Room</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell" aria-label="Narrative sentence completion game">
+      <section class="game-grid">
+        <aside class="scene" aria-label="Current scene visualization">
+          <div class="scene-frame">
+            <div class="scanlines"></div>
+            <img id="scene-image" alt="" />
+            <div class="scene-symbol" id="scene-symbol" aria-hidden="true">◇</div>
+            <p id="scene-render">A room waits to be rendered.</p>
+          </div>
+          <div class="progress" id="progress" aria-label="Game progress"></div>
+        </aside>
+
+        <section class="terminal" aria-label="Game terminal">
+          <div class="terminal-bar">
+            <span>quiet_room.exe</span>
+            <span id="attempt-label">ATTEMPT 01</span>
+          </div>
+          <div class="terminal-output" id="terminal-output" role="log" aria-live="polite"></div>
+          <form id="command-form" autocomplete="off">
+            <label class="command-line" for="command-input">
+              <span class="prompt-mark">&gt;</span>
+              <input
+                id="command-input"
+                name="command"
+                type="text"
+                maxlength="40"
+                placeholder="type one noun..."
+                aria-describedby="input-hint"
+                autofocus
+              />
+            </label>
+            <p id="input-hint">Enter one noun for semantic validation. Type <kbd>restart</kbd> at any time.</p>
+          </form>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
