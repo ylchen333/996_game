@@ -1,35 +1,82 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EVENTS, GAME_STATES, GameEngine, classifyAnswer, cosineSimilarity, vectorize } from "../public/game-engine.js";
+import { GAME_STATES, GameEngine } from "../public/game-engine.js";
 
-test("identical text has cosine similarity 1", () => {
-  assert.equal(cosineSimilarity(vectorize("key"), vectorize("key")), 1);
+const EVENTS = [
+  { eventName: "Throw", narrative: "I hurl a [PlayerKeyword] back at him." },
+  { eventName: "Throw2", narrative: "I hurl a [PlayerKeyword] back at him again." }
+];
+
+test("engine rejects an empty event list", () => {
+  assert.throws(() => new GameEngine([]));
 });
 
-test("local fallback still classifies a known positive example", () => {
-  assert.equal(classifyAnswer("telescope", EVENTS[0]).positive, true);
+test("answering moves to the action state and stores the result", () => {
+  const game = new GameEngine(EVENTS);
+  const result = game.answer("foam ball", { positive: true, outcomeText: "Well done." });
+  assert.equal(game.state, GAME_STATES.ACTION);
+  assert.equal(result.answer, "foam ball");
+  assert.equal(result.outcomeText, "Well done.");
 });
 
-test("local fallback still classifies a known negative example", () => {
-  assert.equal(classifyAnswer("stapler", EVENTS[0]).positive, false);
+test("answering is ignored outside the unanswered state", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("foam ball", { positive: true, outcomeText: "ok" });
+  assert.equal(game.answer("brick", { positive: false, outcomeText: "no" }), null);
 });
 
-test("positive answers advance through every event to win", () => {
-  const game = new GameEngine();
+test("showOutcome reveals the positive outcome", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("foam ball", { positive: true, outcomeText: "ok" });
+  game.showOutcome();
+  assert.equal(game.state, GAME_STATES.POSITIVE);
+});
+
+test("showOutcome reveals the negative outcome", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("brick", { positive: false, outcomeText: "no" });
+  game.showOutcome();
+  assert.equal(game.state, GAME_STATES.NEGATIVE);
+});
+
+test("a positive outcome advances to the next beat", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("foam ball", { positive: true, outcomeText: "ok" });
+  game.showOutcome();
+  game.advance();
+  assert.equal(game.state, GAME_STATES.UNANSWERED);
+  assert.equal(game.eventIndex, 1);
+  assert.equal(game.attempt, 1);
+});
+
+test("a negative outcome retries the same beat and increments attempt", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("brick", { positive: false, outcomeText: "no" });
+  game.showOutcome();
+  game.advance();
+  assert.equal(game.state, GAME_STATES.UNANSWERED);
+  assert.equal(game.eventIndex, 0);
+  assert.equal(game.attempt, 2);
+});
+
+test("winning requires a positive outcome on every beat", () => {
+  const game = new GameEngine(EVENTS);
   for (let index = 0; index < EVENTS.length; index += 1) {
-    game.answer("test noun", { positive: true, confidence: 1, closest: "True" });
-    if (game.state !== GAME_STATES.WON) game.advance();
+    game.answer("foam ball", { positive: true, outcomeText: "ok" });
+    game.showOutcome();
+    game.advance();
   }
   assert.equal(game.state, GAME_STATES.WON);
   assert.equal(game.eventIndex, EVENTS.length);
 });
 
-test("negative answer increments attempt and resets to event zero", () => {
-  const game = new GameEngine();
-  game.answer("test noun", { positive: true, confidence: 1, closest: "True" });
+test("restart returns to the first beat", () => {
+  const game = new GameEngine(EVENTS);
+  game.answer("foam ball", { positive: true, outcomeText: "ok" });
+  game.showOutcome();
   game.advance();
-  game.answer("test noun", { positive: false, confidence: 1, closest: "False" });
-  assert.equal(game.state, GAME_STATES.NEGATIVE);
+  game.restart();
+  assert.equal(game.state, GAME_STATES.UNANSWERED);
   assert.equal(game.eventIndex, 0);
-  assert.equal(game.attempt, 2);
+  assert.equal(game.attempt, 1);
 });

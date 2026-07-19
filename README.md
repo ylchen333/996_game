@@ -1,9 +1,9 @@
 # 996
 
-A dependency-free Node.js prototype of the narrative loop in `local/outline.png`.
-Players complete each sentence with a noun. A positive match advances the story;
-a negative match resets it to scene zero. The UI exposes four explicit states:
-unanswered, answered-positive, answered-negative, and final-win.
+A dependency-free Node.js narrative game. Players complete each story beat's
+sentence with a noun. Gemini judges the word against a per-beat validation rule
+and writes the outcome narration; a FLUX endpoint edits the beat's action image
+to include the player's word.
 
 ## Run locally
 
@@ -16,29 +16,38 @@ npm start
 Then open <http://localhost:3000>. During development, `npm run dev` restarts the
 server when a file changes. Run the engine tests with `npm test`.
 
-## Customize the story
+Set `GEMINI_API_KEY` in `.env.local` before playing (copy `.env.example`).
+Provider placeholders live in `.env.local` (ignored by git). Never put API keys
+in browser-side files.
 
-Edit `EVENTS` in `public/game-engine.js`. Each event contains narrative copy, a
-sentence prompt, positive and negative examples, feedback, and an `imagePrompt`.
+## Story data
 
-The running game sends each sentence and submitted noun to the server-side
-`/api/validate` endpoint. That endpoint asks Gemini for exactly `True` or `False`;
-anything else fails closed as `False` and is logged by the server. Set
-`GEMINI_API_KEY` in `.env.local` before playing. The earlier local cosine and
-`angel`/`devil` debug implementations remain in `classifyAnswer()` for isolated
-testing, but debug mode is disabled while Gemini validation is active.
+All story content lives in `local/base_imgs/events.json` — nothing is hardcoded,
+so any number of story beats works. Each beat has six text fields and four
+images (see `local/base_imgs/README.md` for the full schema):
 
-The `imagePrompt` field and state symbol remain as a fallback when an event image
-is missing or cannot be loaded.
+- `eventName` — unique identifier
+- `narrative` — the on-screen sentence; `[PlayerKeyword]` marks the blank
+- `validationTestPrompt` — the true/false rule Gemini applies to the word.
+  True must map to the desirable answer.
+- `successPrompt` / `negativePrompt` — Gemini prompts that write the outcome text
+- `imageEditPrompt` — the FLUX edit instruction
+- `images` — `context`, `action`, `positiveOutcome`, `negativeOutcome` filenames
 
-## Event images
+The literal token `[PlayerKeyword]` in any prompt is replaced server-side with
+the submitted word. Prompts never reach the browser; the client only receives
+`eventName` and `narrative` from `/api/events`.
 
-Put base-image pairs in `local/base_imgs` and configure `events.json` there. The
-unanswered event displays `image_1`. After submission, the server sends `image_2`
-and the player's word to the configured FLUX edit endpoint while Gemini validates
-the word in parallel. The edited PNG replaces the scene when both operations
-settle. Image requests allow a five-minute timeout to accommodate Modal cold
-starts. See `local/base_imgs/README.md` for the manifest shape.
+## Game flow
 
-Provider placeholders live in `.env.local` (ignored by git), with safe names in
-`.env.example`. Never put API keys in browser-side files.
+1. The context image is shown with the narrative overlaid; the player types a noun.
+2. The action image plus `imageEditPrompt` go to the FLUX edit endpoint while
+   Gemini validates the word and writes outcome text in parallel.
+3. The edited action image is shown with a Continue button.
+4. Continue reveals the positive or negative outcome image with the generated
+   text overlaid. Positive offers Next (next beat, or the win screen after the
+   last one); negative offers Try Again (same beat, attempt counter increments).
+
+Validation fails closed: any Gemini error or non-True answer counts as False.
+Image requests allow a five-minute timeout to accommodate Modal cold starts; if
+the edit fails, the unedited action image is shown instead.

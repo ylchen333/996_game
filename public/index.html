@@ -3,46 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="A terminal-style narrative sentence completion game." />
-    <title>The Quiet Room</title>
+    <meta name="description" content="A narrative sentence completion game with generated scene images." />
+    <title>996</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell" aria-label="Narrative sentence completion game">
-      <section class="game-grid">
-        <aside class="scene" aria-label="Current scene visualization">
-          <div class="scene-frame">
-            <div class="scanlines"></div>
-            <img id="scene-image" alt="" />
-            <div class="scene-symbol" id="scene-symbol" aria-hidden="true">◇</div>
-            <p id="scene-render">A room waits to be rendered.</p>
-          </div>
-          <div class="progress" id="progress" aria-label="Game progress"></div>
-        </aside>
+    <main class="stage" aria-label="Narrative sentence completion game">
+      <header class="hud">
+        <span>996.exe</span>
+        <span id="attempt-label">ATTEMPT 01</span>
+      </header>
 
-        <section class="terminal" aria-label="Game terminal">
-          <div class="terminal-bar">
-            <span>quiet_room.exe</span>
-            <span id="attempt-label">ATTEMPT 01</span>
-          </div>
-          <div class="terminal-output" id="terminal-output" role="log" aria-live="polite"></div>
-          <form id="command-form" autocomplete="off">
-            <label class="command-line" for="command-input">
-              <span class="prompt-mark">&gt;</span>
-              <input
-                id="command-input"
-                name="command"
-                type="text"
-                maxlength="40"
-                placeholder="type one noun..."
-                aria-describedby="input-hint"
-                autofocus
-              />
-            </label>
-            <p id="input-hint">Enter one noun for semantic validation. Type <kbd>restart</kbd> at any time.</p>
-          </form>
-        </section>
+      <section class="scene-frame" aria-label="Current scene">
+        <div class="scanlines"></div>
+        <img id="scene-image" alt="" />
+        <div class="scene-overlay">
+          <p id="scene-text" aria-live="polite">Loading story...</p>
+          <p id="status-line" class="status-line" hidden></p>
+        </div>
       </section>
+
+      <form id="command-form" autocomplete="off" hidden>
+        <label class="command-line" for="command-input">
+          <span class="prompt-mark">&gt;</span>
+          <input
+            id="command-input"
+            name="command"
+            type="text"
+            maxlength="40"
+            placeholder="type one noun..."
+            aria-describedby="input-hint"
+            autofocus
+          />
+        </label>
+        <p id="input-hint">Complete the sentence with one noun, then press Enter.</p>
+      </form>
+
+      <button id="action-button" type="button" hidden>CONTINUE</button>
     </main>
     <script type="module" src="/app.js"></script>
   </body>

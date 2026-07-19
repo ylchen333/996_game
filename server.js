@@ -17,7 +17,7 @@ loadEnvironment();
 
 const publicDirectory = join(process.cwd(), "public");
 const baseImagesDirectory = join(process.cwd(), "local", "base_imgs");
-const imageManifestPath = join(baseImagesDirectory, "events.json");
+const eventManifestPath = join(baseImagesDirectory, "events.json");
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -30,28 +30,80 @@ const mimeTypes = {
   ".webp": "image/webp"
 };
 
-const VALIDATION_PROTOCOL = `You are a true/false semantic validation algorithm. For a word to have positive potention, it needs to fit a validation rule that is inferred from the details in the sentences that preced and suceed it. The validation rule also needs to follow the theme of the game: training to become the perfect employee. Return True if the input word passes the validation test generated and False if the input doesn't pass. Answers will only be one word: either "True" or "False"
+const KEYWORD_TOKEN = "[PlayerKeyword]";
+const IMAGE_ROLES = ["context", "action", "positiveOutcome", "negativeOutcome"];
+const REQUIRED_TEXT_FIELDS = [
+  "eventName",
+  "narrative",
+  "validationTestPrompt",
+  "successPrompt",
+  "negativePrompt",
+  "imageEditPrompt"
+];
 
-Example: I need to leave my desk to throw up from sheer stress, but my chair has a weight sensor that logs unpaid absences. To fool the system into thinking my body is still producing value, I place a [] on the seat cushion.
+const VALIDATION_FRAMING = `You are a true/false validation algorithm for a game about training to become the perfect employee. Apply the validation test below to the player's input word. Respond with exactly one word: "True" or "False".`;
 
-Validation test: "Return true if this object is the same weight as the average human (100 - 200 pounds), else return false"`;
+const OUTCOME_FRAMING = "Respond with one or two short sentences of in-game narration addressed to the player. Do not use markdown, quotation marks, or preamble.";
+
+// Shown when Gemini cannot produce outcome text, so the game never stalls.
+const FALLBACK_OUTCOMES = {
+  positive: "The Manager nods once. Value has been produced. You may proceed.",
+  negative: "The Manager stares in silence. Your choice has been noted in your permanent file."
+};
 
 function sendJson(response, status, body) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
 }
 
-function readImageManifest() {
-  if (!existsSync(imageManifestPath)) return [];
-  const manifest = JSON.parse(readFileSync(imageManifestPath, "utf8"));
-  if (!Array.isArray(manifest)) throw new Error("local/base_imgs/events.json must contain an array.");
+class ValidationServiceError extends Error {
+  constructor(message, status = 502, code = "GEMINI_ERROR") {
+    super(message);
+    this.name = "ValidationServiceError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Read and validate the story manifest. Any number of beats is allowed. */
+function readEventManifest() {
+  if (!existsSync(eventManifestPath)) {
+    throw new ValidationServiceError("local/base_imgs/events.json was not found.", 500, "MISSING_MANIFEST");
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(eventManifestPath, "utf8"));
+  } catch (error) {
+    throw new ValidationServiceError(`events.json is not valid JSON: ${error.message}`, 500, "INVALID_MANIFEST");
+  }
+  if (!Array.isArray(manifest) || manifest.length === 0) {
+    throw new ValidationServiceError("events.json must contain a non-empty array of story beats.", 500, "INVALID_MANIFEST");
+  }
+  manifest.forEach((entry, index) => {
+    for (const field of REQUIRED_TEXT_FIELDS) {
+      if (typeof entry?.[field] !== "string" || !entry[field].trim()) {
+        throw new ValidationServiceError(`events.json entry ${index} is missing the '${field}' field.`, 500, "INVALID_MANIFEST");
+      }
+    }
+    for (const role of IMAGE_ROLES) {
+      if (typeof entry?.images?.[role] !== "string" || !entry.images[role].trim()) {
+        throw new ValidationServiceError(`events.json entry '${entry.eventName}' is missing the images.${role} filename.`, 500, "INVALID_MANIFEST");
+      }
+    }
+  });
   return manifest;
 }
 
-function getEventImages(eventId) {
-  const entry = readImageManifest().find((item) => item?.event === eventId);
-  if (!entry) throw new ValidationServiceError(`No image pair is configured for event '${eventId}'.`, 404, "IMAGE_NOT_CONFIGURED");
+function getEvent(eventName) {
+  const entry = readEventManifest().find((item) => item.eventName === eventName);
+  if (!entry) {
+    throw new ValidationServiceError(`No story beat named '${eventName}' exists in events.json.`, 404, "EVENT_NOT_FOUND");
+  }
   return entry;
+}
+
+function substituteKeyword(text, word) {
+  return text.replaceAll(KEYWORD_TOKEN, word);
 }
 
 /** Resolve only simple filenames inside base_imgs; manifest paths cannot escape it. */
@@ -77,15 +129,6 @@ async function readJson(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-class ValidationServiceError extends Error {
-  constructor(message, status = 502, code = "GEMINI_ERROR") {
-    super(message);
-    this.name = "ValidationServiceError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
 function geminiHttpError(status) {
   if (status === 400) return new ValidationServiceError("Gemini rejected the validation request.", 502, "BAD_GEMINI_REQUEST");
   if (status === 401 || status === 403) return new ValidationServiceError("Gemini authentication failed. Check the API key.", 503, "AUTHENTICATION_ERROR");
@@ -95,14 +138,11 @@ function geminiHttpError(status) {
   return new ValidationServiceError("Gemini validation failed.");
 }
 
-/**
- * Ask Gemini to infer a validation rule from the whole sentence and judge the
- * submitted noun. The API key stays on the server and is never sent to clients.
- */
-async function validateWithGemini(sentence, word) {
+/** Single Gemini text call; returns the joined non-thought answer text or undefined. */
+async function requestGemini(promptText, { temperature, maxOutputTokens }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error("Gemini validation failed: GEMINI_API_KEY is not configured.");
+    console.error("Gemini request failed: GEMINI_API_KEY is not configured.");
     throw new ValidationServiceError("Gemini API key is not configured.", 503, "MISSING_API_KEY");
   }
 
@@ -116,25 +156,21 @@ async function validateWithGemini(sentence, word) {
     response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey
-      },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{ text: `${VALIDATION_PROTOCOL}\n\nSentence to validate: ${sentence}\nInput word: ${word}\n\nReturn only True or False.` }]
-        }],
-        generationConfig: {
-          temperature: 0,
-          // Minimal reasoning is sufficient for a binary classification. A
-          // generous cap prevents reasoning tokens from truncating the verdict.
-          maxOutputTokens: 512,
-          thinkingConfig: { thinkingLevel: "minimal" }
-        }
-      })
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature,
+            // A generous cap prevents reasoning tokens from truncating the answer.
+            maxOutputTokens,
+            thinkingConfig: { thinkingLevel: "minimal" }
+          }
+        })
       }
     );
   } catch (error) {
@@ -148,27 +184,21 @@ async function validateWithGemini(sentence, word) {
 
   if (!response.ok) {
     const errorText = (await response.text()).slice(0, 500);
-    console.error(`Gemini validation request failed (${response.status}): ${errorText}`);
+    console.error(`Gemini request failed (${response.status}): ${errorText}`);
     throw geminiHttpError(response.status);
   }
 
   const payload = await response.json();
   const parts = payload?.candidates?.[0]?.content?.parts || [];
   // A Gemini response can contain multiple parts. Thought-summary parts must not
-  // be interpreted as the final validation answer.
-  const modelAnswer = parts
+  // be interpreted as the final answer.
+  const answer = parts
     .filter((part) => part?.text && part.thought !== true)
     .map((part) => part.text)
     .join("")
     .trim() || undefined;
 
-  // Always expose the model's raw text in the Node process log while the
-  // validation protocol is being tuned. JSON.stringify makes whitespace,
-  // missing values, and unexpected formatting visible without ambiguity.
-  console.log("Gemini API returned:", JSON.stringify(modelAnswer));
-  console.log("Gemini finish reason:", payload?.candidates?.[0]?.finishReason || "unknown");
-
-  if (modelAnswer === undefined) {
+  if (answer === undefined) {
     console.error("Gemini response contained no answer text:", JSON.stringify({
       finishReason: payload?.candidates?.[0]?.finishReason,
       promptFeedback: payload?.promptFeedback,
@@ -176,23 +206,46 @@ async function validateWithGemini(sentence, word) {
       parts
     }));
   }
-
-  if (modelAnswer === "True") return true;
-  if (modelAnswer === "False") return false;
-
-  // Fail closed: prose, markdown, empty responses, and alternate casing are all
-  // invalid because the protocol promises exactly one of two words.
-  console.error("Gemini returned an invalid answer:", JSON.stringify(modelAnswer));
-  return false;
+  return answer;
 }
 
 /**
- * Send image_2 and the player's word to the FLUX edit service. The returned PNG
- * stays in memory only long enough to stream it back to the current browser.
+ * Judge the player's word against the beat's validation test. The test text has
+ * already had [PlayerKeyword] substituted. Anything other than exactly "True"
+ * fails closed as false.
  */
-async function editEventImage(eventId, word) {
-  const { image_2: editImageName } = getEventImages(eventId);
-  const editImagePath = resolveBaseImage(editImageName);
+async function validateWithGemini(validationTest, word) {
+  const answer = await requestGemini(
+    `${VALIDATION_FRAMING}\n\nValidation test: ${validationTest}\nInput word: ${word}\n\nReturn only True or False.`,
+    { temperature: 0, maxOutputTokens: 512 }
+  );
+  console.log("Gemini validation returned:", JSON.stringify(answer));
+  if (answer === "True") return true;
+  if (answer === "False") return false;
+  console.error("Gemini returned an invalid validation answer:", JSON.stringify(answer));
+  return false;
+}
+
+/** Generate the success or failure narration from the beat's outcome prompt. */
+async function generateOutcomeText(outcomePrompt) {
+  const answer = await requestGemini(
+    `${outcomePrompt}\n\n${OUTCOME_FRAMING}`,
+    { temperature: 0.8, maxOutputTokens: 1024 }
+  );
+  if (!answer) {
+    throw new ValidationServiceError("Gemini returned no outcome text.", 502, "EMPTY_OUTCOME");
+  }
+  return answer;
+}
+
+/**
+ * Send the beat's action image and its edit prompt (with the player's word
+ * substituted) to the FLUX edit service. The returned PNG stays in memory only
+ * long enough to stream it back to the current browser.
+ */
+async function editEventImage(eventName, word) {
+  const event = getEvent(eventName);
+  const editImagePath = resolveBaseImage(event.images.action);
   const baseUrl = (process.env.IMAGE_EDIT_BASE_URL || "https://steph--flux2-klein-9b-web-fluxmodel-web.modal.run").replace(/\/$/, "");
   const timeoutMs = Number(process.env.IMAGE_EDIT_TIMEOUT_MS) || 300_000;
   const controller = new AbortController();
@@ -200,7 +253,7 @@ async function editEventImage(eventId, word) {
   const form = new FormData();
   const mimeType = mimeTypes[extname(editImagePath)] || "application/octet-stream";
   form.append("image", new Blob([readFileSync(editImagePath)], { type: mimeType }), basename(editImagePath));
-  form.append("prompt", `Edit the scene so the physical object used by the employee is a ${word}. Preserve the original composition, characters, lighting, and visual style.`);
+  form.append("prompt", substituteKeyword(event.imageEditPrompt, word));
   form.append("num_inference_steps", "4");
   form.append("guidance_scale", "1.0");
 
@@ -235,11 +288,28 @@ async function editEventImage(eventId, word) {
 const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
 
+  // Client-safe story data only: prompts for Gemini and FLUX stay server-side.
+  if (request.method === "GET" && pathname === "/api/events") {
+    try {
+      const events = readEventManifest().map(({ eventName, narrative }) => ({ eventName, narrative }));
+      sendJson(response, 200, events);
+    } catch (error) {
+      const status = error instanceof ValidationServiceError ? error.status : 500;
+      sendJson(response, status, { code: error.code || "MANIFEST_ERROR", error: error.message });
+    }
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/event-image") {
     try {
       const url = new URL(request.url, "http://localhost");
-      const entry = getEventImages(url.searchParams.get("event"));
-      const filePath = resolveBaseImage(entry.image_1);
+      const role = url.searchParams.get("role") || "context";
+      if (!IMAGE_ROLES.includes(role)) {
+        sendJson(response, 400, { code: "INVALID_IMAGE_ROLE", error: `role must be one of: ${IMAGE_ROLES.join(", ")}.` });
+        return;
+      }
+      const event = getEvent(url.searchParams.get("event"));
+      const filePath = resolveBaseImage(event.images[role]);
       response.writeHead(200, {
         "Content-Type": mimeTypes[extname(filePath)] || "application/octet-stream",
         "Cache-Control": "no-cache"
@@ -254,12 +324,12 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && pathname === "/api/edit-image") {
     try {
-      const { event: eventId, word } = await readJson(request);
-      if (typeof eventId !== "string" || typeof word !== "string" || !word.trim() || word.length > 40) {
+      const { event: eventName, word } = await readJson(request);
+      if (typeof eventName !== "string" || typeof word !== "string" || !word.trim() || word.length > 40) {
         sendJson(response, 400, { code: "INVALID_IMAGE_INPUT", error: "An event and input word are required." });
         return;
       }
-      const png = await editEventImage(eventId, word.trim());
+      const png = await editEventImage(eventName, word.trim());
       response.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" });
       response.end(png);
     } catch (error) {
@@ -272,13 +342,25 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && pathname === "/api/validate") {
     try {
-      const { sentence, word } = await readJson(request);
-      if (typeof sentence !== "string" || typeof word !== "string" || !word.trim() || word.length > 40) {
-        sendJson(response, 400, { positive: false, error: "A sentence and input word are required." });
+      const { event: eventName, word } = await readJson(request);
+      if (typeof eventName !== "string" || typeof word !== "string" || !word.trim() || word.length > 40) {
+        sendJson(response, 400, { positive: false, error: "An event and input word are required." });
         return;
       }
-      const positive = await validateWithGemini(sentence.slice(0, 2_000), word.trim());
-      sendJson(response, 200, { positive });
+      const event = getEvent(eventName);
+      const trimmedWord = word.trim();
+      const positive = await validateWithGemini(substituteKeyword(event.validationTestPrompt, trimmedWord), trimmedWord);
+
+      let outcomeText;
+      try {
+        const outcomePrompt = substituteKeyword(positive ? event.successPrompt : event.negativePrompt, trimmedWord);
+        outcomeText = await generateOutcomeText(outcomePrompt);
+      } catch (error) {
+        console.error("Outcome text generation failed, using fallback:", error);
+        outcomeText = positive ? FALLBACK_OUTCOMES.positive : FALLBACK_OUTCOMES.negative;
+      }
+
+      sendJson(response, 200, { positive, outcomeText });
     } catch (error) {
       console.error("Gemini validation failed:", error);
       if (error instanceof SyntaxError) {
@@ -317,5 +399,5 @@ const server = createServer(async (request, response) => {
 
 const port = Number(process.env.PORT) || 3000;
 server.listen(port, () => {
-  console.log(`The Quiet Room is listening at http://localhost:${port}`);
+  console.log(`996 is listening at http://localhost:${port}`);
 });
